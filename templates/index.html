@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>M.A technologies</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f5f7fa; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; width: 360px; padding: 30px; border-radius: 20px; box-shadow: 0 10px 35px rgba(0,0,0,0.1); text-align: center; }
+        h2 { color: #4466f2; margin-bottom: 25px; }
+        .info-row { background: #f0f3ff; border-left: 5px solid #4466f2; margin-bottom: 12px; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; font-size: 14px; }
+        .label { font-weight: bold; color: #333; }
+        .value { color: #555; font-weight: 600; }
+        .btn { background: #4466f2; color: white; border: none; width: 100%; padding: 15px; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; transition: 0.3s; }
+        .btn:hover { background: #3451c7; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        #message { margin-top: 15px; font-weight: bold; }
+        .saved-badge { background: #10b981; color: white; padding: 15px; border-radius: 10px; font-size: 16px; font-weight: bold; margin-top: 15px; }
+        .saved-badge::before { content: "✓ "; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>M.A technologies</h2>
+
+    {% if data and data.success %}
+    <div class="info-row"><span class="label">IP Address:</span> <span id="ip-val" class="value">{{ data.ip }}</span></div>
+    <div class="info-row"><span class="label">Country:</span> <span class="value">{{ data.country }}</span></div>
+    <div class="info-row"><span class="label">Region:</span> <span class="value">{{ data.region }}</span></div>
+    <div class="info-row"><span class="label">City:</span> <span class="value">{{ data.city }}</span></div>
+    <div class="info-row"><span class="label">ISP:</span> <span class="value">{{ data.connection.isp }}</span></div>
+    
+    {% if data.already_saved %}
+    <div class="saved-badge">This IP is already saved in the database</div>
+    {% else %}
+    <button class="btn" id="submit-btn" onclick="submitData()">Submit</button>
+    {% endif %}
+    
+    {% else %}
+    <p style="color: red;">Failed to fetch IP details. Check Internet.</p>
+    <button class="btn" onclick="location.reload()">Retry</button>
+    {% endif %}
+
+    <div id="message"></div>
+</div>
+
+<script>
+    async function submitData() {
+        const ip = document.getElementById('ip-val').innerText;
+        const msg = document.getElementById('message');
+        const btn = document.getElementById('submit-btn');
+        
+        // Disable button and show loading
+        btn.disabled = true;
+        btn.innerText = 'Saving...';
+        msg.innerText = '';
+        
+        try {
+            const response = await fetch('/save-ip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ip: ip })
+            });
+
+            const result = await response.json();
+            msg.innerText = result.message;
+            msg.style.color = (result.status === "success") ? "green" : "red";
+            
+            // If successfully saved, reload page to show "already saved" message
+            if (result.status === "success") {
+                setTimeout(() => {
+                    location.reload();
+                }, 1500);
+            }
+        } catch (error) {
+            msg.innerText = 'Error: Failed to save IP address';
+            msg.style.color = 'red';
+        } finally {
+            // Re-enable button
+            btn.disabled = false;
+            btn.innerText = 'Submit';
+        }
+    }
+</script>
+</body>
+</html>

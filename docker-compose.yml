@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - DB_USER=${DB_USER:-hannan}
+      - DB_PASSWORD=${DB_PASSWORD:-DigitalProwler(3088)}
+      - DB_HOST=${DB_HOST:-168.231.111.220}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-ipcheck}
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
