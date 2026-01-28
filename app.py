@@ -58,62 +58,108 @@ with app.app_context():
     db.create_all()
 
 # IP Geolocation API endpoints (with fallbacks)
-IP_APIS = [
-    {
-        'url': 'https://ipapi.co/json/',
-        'parser': lambda d: {
-            'ip': d.get('ip', 'Unknown'),
-            'country': d.get('country_name', 'Unknown'),
-            'region': d.get('region', 'Unknown'),
-            'city': d.get('city', 'Unknown'),
-            'isp': d.get('org', 'Unknown')
-        }
-    },
-    {
-        'url': 'https://ip-api.com/json/',
-        'parser': lambda d: {
-            'ip': d.get('query', 'Unknown'),
-            'country': d.get('country', 'Unknown'),
-            'region': d.get('regionName', 'Unknown'),
-            'city': d.get('city', 'Unknown'),
-            'isp': d.get('isp', 'Unknown')
-        }
-    },
-    {
-        'url': 'https://ipinfo.io/json',
-        'parser': lambda d: {
-            'ip': d.get('ip', 'Unknown'),
-            'country': d.get('country', 'Unknown'),
-            'region': d.get('region', 'Unknown'),
-            'city': d.get('city', 'Unknown'),
-            'isp': d.get('org', 'Unknown')
-        }
-    }
-]
+def get_user_ip():
+    """Get the user's actual IP address"""
+    # Check X-Forwarded-For header for real client IP (if behind proxy)
+    x_forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if x_forwarded_for:
+        # X-Forwarded-For may contain multiple IPs, take the first one
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.remote_addr
+    return ip
 
-def fetch_ip_data():
-    """Try multiple IP geolocation APIs with fallback"""
+def fetch_ip_data(ip_address=None):
+    """Try multiple IP geolocation APIs with fallback
+    If ip_address is provided, fetch data for that IP.
+    Otherwise, fetch data for the requester's detected IP.
+    """
+    if not ip_address:
+        ip_address = get_user_ip()
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    for api in IP_APIS:
+    # helper to format url
+    def format_url(base, ip):
+        if base == 'https://ipapi.co/':
+            return f"{base}{ip}/json/"
+        elif base == 'http://ip-api.com/':
+            return f"{base}json/{ip}"
+        elif base == 'https://ipinfo.io/':
+            return f"{base}{ip}/json"
+        return base
+        
+    api_configs = [
+        {
+            'base': 'https://ipapi.co/',
+            'parser': lambda d: {
+                'ip': d.get('ip', ip_address),
+                'country': d.get('country_name', 'Unknown'),
+                'region': d.get('region', 'Unknown'),
+                'city': d.get('city', 'Unknown'),
+                'isp': d.get('org', 'Unknown')
+            }
+        },
+        {
+            'base': 'http://ip-api.com/',
+            'parser': lambda d: {
+                'ip': d.get('query', ip_address),
+                'country': d.get('country', 'Unknown'),
+                'region': d.get('regionName', 'Unknown'),
+                'city': d.get('city', 'Unknown'),
+                'isp': d.get('isp', 'Unknown')
+            }
+        },
+        {
+            'base': 'https://ipinfo.io/',
+            'parser': lambda d: {
+                'ip': d.get('ip', ip_address),
+                'country': d.get('country', 'Unknown'),
+                'region': d.get('region', 'Unknown'),
+                'city': d.get('city', 'Unknown'),
+                'isp': d.get('org', 'Unknown')
+            }
+        }
+    ]
+    
+    for api in api_configs:
         try:
-            response = requests.get(api['url'], headers=headers, timeout=10)
+            url = format_url(api['base'], ip_address)
+            # Skip loopback/private IPs for public APIs as they will fail or return error
+            if ip_address in ['127.0.0.1', 'localhost', '::1'] or ip_address.startswith('192.168.') or ip_address.startswith('10.'):
+                 print(f"Skipping public API for private IP: {ip_address}")
+                 # For private IPs, return a dummy object so the UI doesn't crash
+                 return {
+                    'ip': ip_address,
+                    'country': 'Local Network',
+                    'region': 'Local',
+                    'city': 'Local',
+                    'isp': 'Local Network'
+                 }
+
+            response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 # Check if response contains error
-                if 'error' in data or 'status' in data and data.get('status') == 'fail':
+                if 'error' in data or ('status' in data and data.get('status') == 'fail'):
                     continue
                 parsed = api['parser'](data)
-                print(f"Successfully fetched IP data from {api['url']}")
+                print(f"Successfully fetched IP data for {ip_address} from {url}")
                 return parsed
         except Exception as e:
-            print(f"Error with {api['url']}: {e}")
+            print(f"Error with {api['base']}: {e}")
             continue
     
-    # Last resort: try to get IP from request headers
-    return None
+    # Last resort: just return the IP
+    return {
+        'ip': ip_address,
+        'country': 'Unknown',
+        'region': 'Unknown',
+        'city': 'Unknown',
+        'isp': 'Unknown'
+    }
 
 @app.route('/')
 def index():
@@ -156,8 +202,8 @@ def save_ip():
                 'message': 'IP address is required'
             }), 400
         
-        # Fetch full IP details again to save complete information
-        ip_info = fetch_ip_data()
+        # Fetch full IP details for the specific IP being saved
+        ip_info = fetch_ip_data(ip_address)
         
         # Check if IP already exists
         existing = IPRecord.query.filter_by(ip_address=ip_address).first()
@@ -239,18 +285,25 @@ def test_api():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    for api in IP_APIS:
+    # Define APIs locally for testing
+    verification_apis = [
+        'https://ipapi.co/json/',
+        'http://ip-api.com/json/',
+        'https://ipinfo.io/json'
+    ]
+    
+    for url in verification_apis:
         try:
-            response = requests.get(api['url'], headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=10)
             results.append({
-                'url': api['url'],
+                'url': url,
                 'status_code': response.status_code,
                 'success': response.status_code == 200,
                 'data': response.json() if response.status_code == 200 else None
             })
         except Exception as e:
             results.append({
-                'url': api['url'],
+                'url': url,
                 'status_code': None,
                 'success': False,
                 'error': str(e)
