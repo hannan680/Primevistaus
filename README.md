@@ -48,3 +48,4 @@ The application uses SQLite database (`ip_detection.db`) to store IP records wit
 - Flask 3.0.0
 - Flask-SQLAlchemy 3.1.1
 - requests 2.31.0
+# Primevistaus
